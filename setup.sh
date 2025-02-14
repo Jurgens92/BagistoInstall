@@ -136,9 +136,49 @@ check_command "Environment configuration"
 print_section "Installing Dependencies and Building Assets"
 composer install
 check_command "Composer dependencies installation"
+
+# Fix for laravel-vite-plugin ESM issue
 npm install
-check_command "NPM dependencies installation"
-npm run build
+npm install --save-dev @vitejs/plugin-vue
+npm install --save-dev vite
+
+# Update vite.config.js
+cat > vite.config.js << EOL
+import { defineConfig } from 'vite';
+import laravel from 'laravel-vite-plugin';
+import vue from '@vitejs/plugin-vue';
+
+export default defineConfig({
+    plugins: [
+        laravel({
+            input: [
+                'resources/css/app.css',
+                'resources/js/app.js'
+            ],
+            refresh: true,
+        }),
+        vue({
+            template: {
+                transformAssetUrls: {
+                    base: null,
+                    includeAbsolute: false,
+                },
+            },
+        }),
+    ],
+    resolve: {
+        alias: {
+            vue: 'vue/dist/vue.esm-bundler.js',
+        },
+    },
+});
+EOL
+
+# Build assets
+npm run build || {
+    echo "First build attempt failed, trying alternative build..."
+    npm run prod
+}
 check_command "Asset building"
 
 # Generate application key
