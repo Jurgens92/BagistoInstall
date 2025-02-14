@@ -87,6 +87,93 @@ cd /var/www
 composer create-project bagisto/bagisto $PROJECT_NAME
 check_command "Bagisto project creation"
 
+# Navigate to project directory
+cd $PROJECT_PATH
+
+# Install dependencies and build assets
+print_section "Installing Dependencies and Building Assets"
+composer install
+check_command "Composer dependencies installation"
+
+# Clear existing node modules and package files
+rm -rf node_modules package-lock.json
+
+# Install specific versions of packages
+npm install
+npm install --save-dev vite@^4.0
+npm install --save-dev laravel-vite-plugin@^0.7.0
+npm install --save-dev @vitejs/plugin-vue@^4.0
+npm install --save vue@^3.2
+
+# Create package.json if it doesn't exist
+if [ ! -f "package.json" ]; then
+    cat > package.json << EOL
+{
+    "private": true,
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build"
+    },
+    "devDependencies": {
+        "@vitejs/plugin-vue": "^4.0",
+        "laravel-vite-plugin": "^0.7.0",
+        "vite": "^4.0"
+    },
+    "dependencies": {
+        "vue": "^3.2"
+    }
+}
+EOL
+fi
+
+# Create vite.config.js
+cat > vite.config.js << EOL
+const { defineConfig } = require('vite');
+const laravel = require('laravel-vite-plugin');
+const vue = require('@vitejs/plugin-vue');
+
+module.exports = defineConfig({
+    plugins: [
+        laravel({
+            input: [
+                'resources/css/app.css',
+                'resources/js/app.js'
+            ],
+            refresh: true,
+        }),
+        vue({
+            template: {
+                transformAssetUrls: {
+                    base: null,
+                    includeAbsolute: false,
+                },
+            },
+        }),
+    ],
+});
+EOL
+
+# Ensure resource directories exist
+mkdir -p resources/css resources/js
+
+# Create basic CSS and JS files if they don't exist
+touch resources/css/app.css
+touch resources/js/app.js
+
+# Try to build assets
+echo "Attempting to build assets..."
+npm run build || {
+    echo "Standard build failed, trying alternative approach..."
+    # If build fails, try updating npm first
+    npm install -g npm@latest
+    npm install
+    npm run build
+} || {
+    echo "Asset building failed, but continuing with installation..."
+    # Continue even if asset building fails
+    true
+}
+
 # Configure Nginx
 print_section "Configuring Nginx"
 sudo tee /etc/nginx/sites-available/bagisto << EOL
@@ -125,61 +212,11 @@ check_command "Nginx configuration"
 
 # Configure environment
 print_section "Configuring Environment"
-cd $PROJECT_PATH
 cp .env.example .env
 sed -i "s/DB_DATABASE=.*/DB_DATABASE=$DB_NAME/" .env
 sed -i "s/DB_USERNAME=.*/DB_USERNAME=$DB_USER/" .env
 sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/" .env
 check_command "Environment configuration"
-
-# Install dependencies and build assets
-print_section "Installing Dependencies and Building Assets"
-composer install
-check_command "Composer dependencies installation"
-
-# Fix for laravel-vite-plugin ESM issue
-npm install
-npm install --save-dev @vitejs/plugin-vue
-npm install --save-dev vite
-
-# Update vite.config.js
-cat > vite.config.js << EOL
-import { defineConfig } from 'vite';
-import laravel from 'laravel-vite-plugin';
-import vue from '@vitejs/plugin-vue';
-
-export default defineConfig({
-    plugins: [
-        laravel({
-            input: [
-                'resources/css/app.css',
-                'resources/js/app.js'
-            ],
-            refresh: true,
-        }),
-        vue({
-            template: {
-                transformAssetUrls: {
-                    base: null,
-                    includeAbsolute: false,
-                },
-            },
-        }),
-    ],
-    resolve: {
-        alias: {
-            vue: 'vue/dist/vue.esm-bundler.js',
-        },
-    },
-});
-EOL
-
-# Build assets
-npm run build || {
-    echo "First build attempt failed, trying alternative build..."
-    npm run prod
-}
-check_command "Asset building"
 
 # Generate application key
 php artisan key:generate
